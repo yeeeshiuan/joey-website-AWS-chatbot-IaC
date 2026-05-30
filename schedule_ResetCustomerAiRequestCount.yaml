@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Web APP AI Agent - Schedule ResetCustomerAiRequestCount template
+
+Parameters:
+  ProjectName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Project name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Project name for the Nested Stacks. It can include numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen (-).
+    Type: String
+  ProjectSuffixName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Suffix name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Suffix name for every unique service.
+    Type: String
+  ResetCustomerAiRequestCountFunctionArn:
+    Type: "String"
+    Description: "The ARN of the lambda function."
+
+Resources:
+  ScheduleExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  PolicyForLambda:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      PolicyName: !Sub ${ProjectName}-${ProjectSuffixName}-lambda-policy-endpoint
+      RoleName: !Ref ScheduleExecutionRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - lambda:InvokeFunction
+            Resource:
+              - !Sub ${ResetCustomerAiRequestCountFunctionArn}:*
+              - !Ref ResetCustomerAiRequestCountFunctionArn
+
+  ResetCustomerAiRequestCountSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub ${ProjectName}-${ProjectSuffixName}-schedule
+      ScheduleExpression: "cron(0 0 * * ? *)"
+      ScheduleExpressionTimezone: "UTC"
+      State: "ENABLED"
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !Ref ResetCustomerAiRequestCountFunctionArn
+        RoleArn: !GetAtt ScheduleExecutionRole.Arn
+
+Outputs:
+  ResetCustomerAiRequestCountSchedule:
+    Description: "The Name of the ResetCustomerAiRequestCount Schedule."
+    Value: !Ref ResetCustomerAiRequestCountSchedule

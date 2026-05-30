@@ -1,0 +1,116 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Web APP AI Agent - API gateway template
+
+Parameters:
+  ProjectName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Project name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Project name for the Nested Stacks. It can include numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen (-).
+    Type: String
+  ProjectSuffixName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Suffix name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Suffix name for every unique service.
+    Type: String
+  StepFunctionArn:
+    Type: "String"
+    Description: "The Arn of the step function."
+  RestApiGatewayStageName:
+    Type: "String"
+    Description: "Specify the name of the API gateway stage."
+  ApiGatewayDescription:
+    Type: "String"
+    Default: "The endpoint for web app AI agent service."
+    Description: "The introduction of the API gateway."
+
+Resources:
+  RoleForApiGateway:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${ProjectSuffixName}-endpoint-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+
+  PolicyForStepFunction:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      PolicyName: !Sub ${ProjectName}-${ProjectSuffixName}-sf-policy
+      RoleName: !Ref RoleForApiGateway
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - states:StartSyncExecution
+            Resource:
+              - !Ref StepFunctionArn
+
+  RestApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Description: !Ref ApiGatewayDescription
+      Name: !Sub ${ProjectName}-${ProjectSuffixName}-endpoint
+      Tags:
+        - Key: "project"
+          Value: !Ref ProjectName
+        - Key: "customer"
+          Value: !Ref ProjectSuffixName
+
+  RestApiGatewayMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: PolicyForStepFunction
+    Properties:
+      RestApiId: !Ref RestApiGateway
+      ResourceId: !GetAtt RestApiGateway.RootResourceId
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS
+        Credentials: !GetAtt RoleForApiGateway.Arn
+        Uri: !Join
+          - ""
+          - - "arn:aws:apigateway:"
+            - !Ref AWS::Region
+            - ":states:action/StartSyncExecution"
+        IntegrationHttpMethod: POST
+        RequestTemplates:
+          application/json: !Join
+            - ""
+            - - "#set($body = $util.escapeJavaScript($input.body).replaceAll(\"\\\\'\", \"'\"))\n"
+              - "{\n"
+              - "\"input\": \"$body\",\n"
+              - !Sub "\"stateMachineArn\":\"${StepFunctionArn}\"\n"
+              - "}"
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseTemplates:
+              application/json: !Join
+                - ""
+                - - "#set($parsed = $util.parseJson($input.path('$.output')))\n"
+                  - "{\n"
+                  - "\"result\": \"$parsed.responseText\"\n"
+                  - "}"
+      MethodResponses:
+        - StatusCode: '200'
+
+  RestApiGatewayDeployment:
+    Type: 'AWS::ApiGateway::Deployment'
+    DependsOn:
+      - RestApiGatewayMethod
+    Properties:
+      RestApiId: !Ref RestApiGateway
+      StageName: !Ref RestApiGatewayStageName
+
+Outputs:
+  RestApiGatewayStageUrl:
+    Description: "The URL of the api gateway."
+    Value: !Sub "https://${RestApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${RestApiGatewayStageName}"
+  RestApiGatewayId:
+    Description: "The ID of the api gateway."
+    Value: !GetAtt RestApiGateway.RestApiId

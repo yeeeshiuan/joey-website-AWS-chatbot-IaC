@@ -1,0 +1,134 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Web APP AI Agent - Lambda function ResetCustomerAiRequestCount template
+
+Parameters:
+  ProjectName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Project name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Project name for the Nested Stacks. It can include numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen (-).
+    Type: String
+  ProjectSuffixName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Suffix name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Suffix name for every unique service.
+    Type: String
+  CustomerTableName:
+    Type: "String"
+    Description: "The name of the customer table."
+  CustomerTableArn:
+    Type: "String"
+    Description: "The Arn of the customer table."
+
+Resources:
+  FunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  PolicyForDynamodbTables:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      PolicyName: !Sub ${ProjectName}-${ProjectSuffixName}-dynamodb-policy-lambda
+      RoleName: !Ref FunctionExecutionRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:Scan
+              - dynamodb:UpdateItem
+            Resource:
+              - !Ref CustomerTableArn
+
+  ResetCustomerAiRequestCountFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${ProjectSuffixName}-resetCustomerAiRequestCount-lambda
+      Role: !GetAtt FunctionExecutionRole.Arn
+      Handler: index.lambda_handler
+      Environment:
+        Variables:
+          Customer_table_name: !Ref CustomerTableName
+      Runtime: python3.12
+      Tags:
+        - Key: "project"
+          Value: !Ref ProjectName
+        - Key: "customer"
+          Value: !Ref ProjectSuffixName
+      Code:
+        ZipFile: |
+          import os
+          import json, boto3
+          from boto3.dynamodb.conditions import Key, Attr
+
+          client = boto3.client('dynamodb')
+          dynamodb = boto3.resource("dynamodb")
+          tableName = os.environ['Customer_table_name']
+          table = dynamodb.Table(tableName)
+
+          def lambda_handler(event, context):
+              try:
+                  esk = None
+
+                  while True:
+                      if not esk:
+                          scan_generator = table.scan(
+                              Limit=100,
+                              ProjectionExpression="fingerprintId, clientKey"
+                          )
+                      else:
+                          scan_generator = table.scan(
+                              Limit=100,
+                              ExclusiveStartKey=esk,
+                              ProjectionExpression="fingerprintId, clientKey"
+                          )
+                      print(scan_generator)
+                      items = scan_generator['Items']
+                      for item in items:
+                          # your code for processing
+                          table.update_item(
+                              Key=item,
+                              AttributeUpdates={
+                                  'aiRequestCount': {
+                                      'Value': 0
+                                  }
+                              }
+                          )
+
+                      # condition to check if entire table is scanned 
+                      else:
+                          break;
+
+                      # Load the last keys
+                      esk = scan_generator['LastEvaluatedKey']
+
+              except Exception as err:
+                  print(err)
+                  """
+                  print(
+                      "Couldn't update data in table %s. Here's why: %s: %s ",
+                      table.name,
+                      err.response["Error"]["Code"],
+                      err.response["Error"]["Message"],
+                  )
+                  """
+                  raise
+
+              return {
+                  "statusCode": 200,
+                  "body": "Hello from Lambda (Web APP AI Agent - Lambda function ResetCustomerAiRequestCount) !"
+              }
+
+Outputs:
+  ResetCustomerAiRequestCountFunctionArn:
+    Description: "The Arn of the ResetCustomerAiRequestCount function."
+    Value: !GetAtt ResetCustomerAiRequestCountFunction.Arn

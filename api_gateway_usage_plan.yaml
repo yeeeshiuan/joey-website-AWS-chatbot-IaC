@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Web APP AI Agent - API gateway Usage plan template
+
+Parameters:
+  ProjectName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Project name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Project name for the Nested Stacks. It can include numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen (-).
+    Type: String
+  ProjectSuffixName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Suffix name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Suffix name for every unique service.
+    Type: String
+
+  RestApiGatewayId:
+    Type: "String"
+    Description: "The ID of the api gateway."
+  RestApiGatewayStageName:
+    Type: "String"
+    Description: "Specify the name of the API gateway stage."
+
+Resources:
+  RestApiKey:
+    Type: 'AWS::ApiGateway::ApiKey'
+    Properties:
+      Name: !Sub ${ProjectName}-${ProjectSuffixName}-ApiKey
+      Description: "Web APP AI Agent - API gateway API Key" 
+      Enabled: true
+      StageKeys:
+        - RestApiId: !Ref RestApiGatewayId
+          StageName: !Ref RestApiGatewayStageName
+      Tags:
+        - Key: "project"
+          Value: !Ref ProjectName
+        - Key: "customer"
+          Value: !Ref ProjectSuffixName
+
+  MyUsagePlan:
+    Type: 'AWS::ApiGateway::UsagePlan'
+    DependsOn:
+    - RestApiKey
+    Properties:
+      ApiStages:
+        - ApiId: !Ref RestApiGatewayId
+          Stage: !Ref RestApiGatewayStageName
+      Description: "Web APP AI Agent - API gateway Usage Plan"
+      Quota:
+        Limit: 60
+        Period: DAY
+      Throttle:
+        BurstLimit: 20
+        RateLimit: 10
+      UsagePlanName: !Sub ${ProjectName}-${ProjectSuffixName}-API-UsagePlan
+      Tags:
+        - Key: "project"
+          Value: !Ref ProjectName
+        - Key: "customer"
+          Value: !Ref ProjectSuffixName
+
+  MyUsagePlanKey:
+    DependsOn:
+    - MyUsagePlan
+    Type: 'AWS::ApiGateway::UsagePlanKey'
+    Properties:
+      KeyId: !GetAtt RestApiKey.APIKeyId
+      KeyType: API_KEY
+      UsagePlanId: !GetAtt MyUsagePlan.Id

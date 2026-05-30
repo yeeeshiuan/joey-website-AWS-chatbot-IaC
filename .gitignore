@@ -1,0 +1,38 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment & secrets
+.env
+.env.*
+*.env
+aws-exports.js
+
+# AWS SAM / CDK build artifacts
+.aws-sam/
+.cdk.staging/
+cdk.out/
+samconfig.toml
+
+# CloudFormation packaged output templates
+packaged*.yaml
+packaged*.json
+
+# Lambda deployment artifacts
+*.zip
+__pycache__/
+*.py[cod]
+node_modules/
+.venv/
+venv/
+
+# Logs & temp files
+*.log
+*.tmp
+*.bak

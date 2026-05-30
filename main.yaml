@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Web APP AI Agent - Root template
+
+Parameters:
+  ProjectName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Project name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Project name for the Nested Stacks. It can include numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen (-).
+    Type: String
+  ProjectSuffixName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Suffix name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Suffix name for every unique service.
+    Type: String
+  ConfigPopulationFileName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: File name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: S3 bucket File name. File name can include numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen (-).
+    Type: String
+  RestApiGatewayStageName:
+    Description: "Specify the name of the API gateway stage."
+    Type: "String"
+    Default: "prod"
+
+Resources:
+  DynamodbStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://${ProjectName}-${ProjectSuffixName}.s3.amazonaws.com/dynamodb.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        ProjectName: !Ref ProjectName
+        ProjectSuffixName: !Ref ProjectSuffixName
+        ConfigPopulationFileName: !Ref ConfigPopulationFileName
+
+  ResetCustomerAiRequestCountLambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - DynamodbStack
+    Properties:
+      TemplateURL: !Sub https://${ProjectName}-${ProjectSuffixName}.s3.amazonaws.com/lambda_function_ResetCustomerAiRequestCount.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        ProjectName: !Ref ProjectName
+        ProjectSuffixName: !Ref ProjectSuffixName
+        CustomerTableName: !GetAtt DynamodbStack.Outputs.CustomerTableName
+        CustomerTableArn: !GetAtt DynamodbStack.Outputs.CustomerTableArn
+
+  ResetCustomerAiRequestCountScheduleStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - ResetCustomerAiRequestCountLambdaStack
+    Properties:
+      TemplateURL: !Sub https://${ProjectName}-${ProjectSuffixName}.s3.amazonaws.com/schedule_ResetCustomerAiRequestCount.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        ProjectName: !Ref ProjectName
+        ProjectSuffixName: !Ref ProjectSuffixName
+        ResetCustomerAiRequestCountFunctionArn: !GetAtt ResetCustomerAiRequestCountLambdaStack.Outputs.ResetCustomerAiRequestCountFunctionArn
+
+  StepFunctionStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - DynamodbStack
+    Properties:
+      TemplateURL: !Sub https://${ProjectName}-${ProjectSuffixName}.s3.amazonaws.com/step_machine_webappAiAgent.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        ProjectName: !Ref ProjectName
+        ProjectSuffixName: !Ref ProjectSuffixName
+        ConfigTableName: !GetAtt DynamodbStack.Outputs.ConfigTableName
+        ConfigTableArn: !GetAtt DynamodbStack.Outputs.ConfigTableArn
+        ConverstationTableName: !GetAtt DynamodbStack.Outputs.ConverstationTableName
+        ConverstationTableArn: !GetAtt DynamodbStack.Outputs.ConverstationTableArn
+        CustomerTableName: !GetAtt DynamodbStack.Outputs.CustomerTableName
+        CustomerTableArn: !GetAtt DynamodbStack.Outputs.CustomerTableArn
+        DailyLimitedTableName: !GetAtt DynamodbStack.Outputs.DailyLimitedTableName
+        DailyLimitedTableArn: !GetAtt DynamodbStack.Outputs.DailyLimitedTableArn
+
+  WebhookApiGatewayStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - StepFunctionStack
+    Properties:
+      TemplateURL: !Sub https://${ProjectName}-${ProjectSuffixName}.s3.amazonaws.com/api_gateway_endpoint.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        ProjectName: !Ref ProjectName
+        ProjectSuffixName: !Ref ProjectSuffixName
+        StepFunctionArn: !GetAtt StepFunctionStack.Outputs.StepFunctionArn
+        RestApiGatewayStageName: !Ref RestApiGatewayStageName
+
+  WebhookApiGatewayUsagePlanStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - WebhookApiGatewayStack
+    Properties:
+      TemplateURL: !Sub https://${ProjectName}-${ProjectSuffixName}.s3.amazonaws.com/api_gateway_usage_plan.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        ProjectName: !Ref ProjectName
+        ProjectSuffixName: !Ref ProjectSuffixName
+        RestApiGatewayId: !GetAtt WebhookApiGatewayStack.Outputs.RestApiGatewayId
+        RestApiGatewayStageName: !Ref RestApiGatewayStageName
+
+Outputs:
+  WebHookApiGateway:
+    Description: "The Web hook of the service."
+    Value: !GetAtt WebhookApiGatewayStack.Outputs.RestApiGatewayStageUrl

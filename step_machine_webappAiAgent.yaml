@@ -1,0 +1,634 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Web APP AI Agent - Step functions template
+
+Parameters:
+  ProjectName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Project name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Project name for the Nested Stacks. It can include numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen (-).
+    Type: String
+  ProjectSuffixName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Suffix name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Suffix name for every unique service.
+    Type: String
+  ConfigTableName:
+    Type: String
+    Description: The name of the config table.
+  ConfigTableArn:
+    Type: String
+    Description: The Arn of the config table.
+  ConverstationTableName:
+    Type: String
+    Description: The name of the conversation table.
+  ConverstationTableArn:
+    Type: String
+    Description: The Arn of the conversation table.
+  CustomerTableName:
+    Type: String
+    Description: The name of the customer table.
+  CustomerTableArn:
+    Type: String
+    Description: The Arn of the customer table.
+  DailyLimitedTableName:
+    Type: String
+    Description: The name of the daily limited table.
+  DailyLimitedTableArn:
+    Type: String
+    Description: The Arn of the daily limited table.
+
+Resources:
+  AiAgentStepMachine:
+    DependsOn:
+      - StepMachineRole
+      - LogGroupStepMachine
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      Definition:
+        Comment: A description of my state machine
+        StartAt: Get Config Data
+        States:
+          Get Config Data:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:getItem
+            Arguments:
+              TableName: ${dynamodbgetItem_TableName_config}
+              Key:
+                PK:
+                  S: config
+                SK:
+                  S: latest
+            Next: Get Daily Limited Data
+            Output:
+              message: '{% $states.input.message %}'
+              humanDetectionData: '{% $states.input.humanDetectionData %}'
+              timeElapsed: '{% $states.input.timeElapsed %}'
+              isHeadless: '{% $states.input.isHeadless %}'
+              fingerprintId: '{% $states.input.fingerprintId %}'
+              lang: '{% $states.input.lang %}'
+              isHuman: '{% $states.input.isHuman %}'
+              totalScore: '{% $states.input.totalScore %}'
+              anonId: '{% $states.input.anonId %}'
+              userAgent: '{% $states.input.userAgent %}'
+              clientIp: '{% $states.input.clientIp %}'
+              clientKey: '{% $states.input.clientKey %}'
+              systemPrompt: '{% $states.result.Item.systemPrompt.S %}'
+              aiRequestLimit: '{% $states.result.Item.aiRequestLimit.N %}'
+              aiRequestLimitDaily: '{% $states.result.Item.aiRequestLimitDaily.N %}'
+          Get Daily Limited Data:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:getItem
+            Arguments:
+              TableName: ${dynamodbgetItem_TableName_dailyLimited}
+              Key:
+                PK:
+                  S: daily
+                timeAt:
+                  S: '{% $now(''[Y0001]-[M01]-[D01]'') %}'
+            Next: Is daily exist
+            Output:
+              message: '{% $states.input.message %}'
+              humanDetectionData: '{% $states.input.humanDetectionData %}'
+              timeElapsed: '{% $states.input.timeElapsed %}'
+              isHeadless: '{% $states.input.isHeadless %}'
+              fingerprintId: '{% $states.input.fingerprintId %}'
+              lang: '{% $states.input.lang %}'
+              isHuman: '{% $states.input.isHuman %}'
+              totalScore: '{% $states.input.totalScore %}'
+              anonId: '{% $states.input.anonId %}'
+              userAgent: '{% $states.input.userAgent %}'
+              clientIp: '{% $states.input.clientIp %}'
+              clientKey: '{% $states.input.clientKey %}'
+              systemPrompt: '{% $states.input.systemPrompt %}'
+              aiRequestLimit: '{% $states.input.aiRequestLimit %}'
+              aiRequestLimitDaily: '{% $states.input.aiRequestLimitDaily %}'
+            Assign:
+              queryaDailyResult: '{% $states.result %}'
+          Is daily exist:
+            Type: Choice
+            Choices:
+              - Next: Update the requestUsageDaily
+                Condition: '{% $exists($queryaDailyResult.Item) %}'
+            Default: Insert a new daily
+          Insert a new daily:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:putItem
+            Arguments:
+              TableName: ${dynamodbgetItem_TableName_dailyLimited}
+              Item:
+                PK:
+                  S: daily
+                timeAt:
+                  S: '{% $now(''[Y0001]-[M01]-[D01]'') %}'
+                aiRequestUsageDaily:
+                  'N': '0'
+                requestUsageDaily:
+                  'N': '1'
+            Next: Get Customer Data
+            Output:
+              message: '{% $states.input.message %}'
+              humanDetectionData: '{% $states.input.humanDetectionData %}'
+              timeElapsed: '{% $states.input.timeElapsed %}'
+              isHeadless: '{% $states.input.isHeadless %}'
+              fingerprintId: '{% $states.input.fingerprintId %}'
+              lang: '{% $states.input.lang %}'
+              isHuman: '{% $states.input.isHuman %}'
+              totalScore: '{% $states.input.totalScore %}'
+              anonId: '{% $states.input.anonId %}'
+              userAgent: '{% $states.input.userAgent %}'
+              clientIp: '{% $states.input.clientIp %}'
+              clientKey: '{% $states.input.clientKey %}'
+              systemPrompt: '{% $states.input.systemPrompt %}'
+              aiRequestLimit: '{% $states.input.aiRequestLimit %}'
+              aiRequestLimitDaily: '{% $states.input.aiRequestLimitDaily %}'
+              aiRequestUsageDaily: '0'
+          Update the requestUsageDaily:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:updateItem
+            Arguments:
+              TableName: ${dynamodbgetItem_TableName_dailyLimited}
+              Key:
+                PK:
+                  S: daily
+                timeAt:
+                  S: '{% $now(''[Y0001]-[M01]-[D01]'') %}'
+              UpdateExpression: set requestUsageDaily = requestUsageDaily + :oneRequest
+              ExpressionAttributeValues:
+                ':oneRequest':
+                  'N': '1'
+            Next: Get Customer Data
+            Output:
+              message: '{% $states.input.message %}'
+              humanDetectionData: '{% $states.input.humanDetectionData %}'
+              timeElapsed: '{% $states.input.timeElapsed %}'
+              isHeadless: '{% $states.input.isHeadless %}'
+              fingerprintId: '{% $states.input.fingerprintId %}'
+              lang: '{% $states.input.lang %}'
+              isHuman: '{% $states.input.isHuman %}'
+              totalScore: '{% $states.input.totalScore %}'
+              anonId: '{% $states.input.anonId %}'
+              userAgent: '{% $states.input.userAgent %}'
+              clientIp: '{% $states.input.clientIp %}'
+              clientKey: '{% $states.input.clientKey %}'
+              systemPrompt: '{% $states.input.systemPrompt %}'
+              aiRequestLimit: '{% $states.input.aiRequestLimit %}'
+              aiRequestLimitDaily: '{% $states.input.aiRequestLimitDaily %}'
+              aiRequestUsageDaily: '{% $queryaDailyResult.Item.aiRequestUsageDaily.N %}'
+          Is greater than the daily AI request quota:
+            Type: Choice
+            Choices:
+              - Next: No daily AI request quota message
+                Condition: >-
+                  {% $number($states.input.aiRequestUsageDaily) >=
+                  $number($states.input.aiRequestLimitDaily) %}
+            Default: Is greater than the aiRequestCount
+          Is greater than the aiRequestCount:
+            Type: Choice
+            Choices:
+              - Next: No AI request quota message
+                Condition: >-
+                  {% $number($states.input.aiRequestCount) >=
+                  $number($states.input.aiRequestLimit) %}
+            Default: Is request from human
+          No AI request quota message:
+            Type: Pass
+            Assign:
+              input_tokens: '0'
+              output_tokens: '0'
+              modelID: none
+              responseText: no AI request quota issue.
+            Next: Insert a new conversation
+          No daily AI request quota message:
+            Type: Pass
+            Next: Insert a new conversation
+            Assign:
+              input_tokens: '0'
+              output_tokens: '0'
+              modelID: none
+              responseText: no daily AI request quota issue.
+          Get Customer Data:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:getItem
+            Arguments:
+              TableName: ${dynamodbgetItem_TableName_customer}
+              Key:
+                fingerprintId:
+                  S: '{% $states.input.fingerprintId %}'
+                clientKey:
+                  S: '{% $states.input.clientKey %}'
+            Next: Is customer exist
+            Assign:
+              queryaCustomerResult: '{% $states.result %}'
+            Output:
+              message: '{% $states.input.message %}'
+              humanDetectionData: '{% $states.input.humanDetectionData %}'
+              timeElapsed: '{% $states.input.timeElapsed %}'
+              isHeadless: '{% $states.input.isHeadless %}'
+              fingerprintId: '{% $states.input.fingerprintId %}'
+              lang: '{% $states.input.lang %}'
+              isHuman: '{% $states.input.isHuman %}'
+              totalScore: '{% $states.input.totalScore %}'
+              anonId: '{% $states.input.anonId %}'
+              userAgent: '{% $states.input.userAgent %}'
+              clientIp: '{% $states.input.clientIp %}'
+              clientKey: '{% $states.input.clientKey %}'
+              systemPrompt: '{% $states.input.systemPrompt %}'
+              aiRequestLimit: '{% $states.input.aiRequestLimit %}'
+              aiRequestLimitDaily: '{% $states.input.aiRequestLimitDaily %}'
+              aiRequestUsageDaily: '{% $states.input.aiRequestUsageDaily %}'
+          Is customer exist:
+            Type: Choice
+            Choices:
+              - Condition: '{% $exists($queryaCustomerResult.Item) %}'
+                Next: Update the requestCount
+            Default: Insert a new customer
+          Insert a new customer:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:putItem
+            Arguments:
+              TableName: ${dynamodbgetItem_TableName_customer}
+              Item:
+                fingerprintId:
+                  S: '{% $states.input.fingerprintId %}'
+                clientKey:
+                  S: '{% $states.input.clientKey %}'
+                anonId:
+                  S: '{% $states.input.anonId %}'
+                userAgent:
+                  S: '{% $states.input.userAgent %}'
+                clientIp:
+                  S: '{% $states.input.clientIp %}'
+                aiRequestCount:
+                  'N': '0'
+                requestCount:
+                  'N': '1'
+                createdAt:
+                  S: '{% $now(''[Y0001]-[M01]-[D01]  [h#1]:[m01][P]'', ''+0800'') %}'
+            Output:
+              message: '{% $states.input.message %}'
+              humanDetectionData: '{% $states.input.humanDetectionData %}'
+              timeElapsed: '{% $states.input.timeElapsed %}'
+              isHeadless: '{% $states.input.isHeadless %}'
+              fingerprintId: '{% $states.input.fingerprintId %}'
+              lang: '{% $states.input.lang %}'
+              isHuman: '{% $states.input.isHuman %}'
+              totalScore: '{% $states.input.totalScore %}'
+              anonId: '{% $states.input.anonId %}'
+              userAgent: '{% $states.input.userAgent %}'
+              clientIp: '{% $states.input.clientIp %}'
+              clientKey: '{% $states.input.clientKey %}'
+              systemPrompt: '{% $states.input.systemPrompt %}'
+              aiRequestLimit: '{% $states.input.aiRequestLimit %}'
+              aiRequestCount: '0'
+              aiRequestLimitDaily: '{% $states.input.aiRequestLimitDaily %}'
+              aiRequestUsageDaily: '{% $states.input.aiRequestUsageDaily %}'
+            Next: Is greater than the daily AI request quota
+          Update the requestCount:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:updateItem
+            Arguments:
+              TableName: ${dynamodbgetItem_TableName_customer}
+              Key:
+                fingerprintId:
+                  S: '{% $states.input.fingerprintId %}'
+                clientKey:
+                  S: '{% $states.input.clientKey %}'
+              UpdateExpression: >-
+                set requestCount = requestCount + :oneRequest, updatedAt =
+                :nowDateTime
+              ExpressionAttributeValues:
+                ':oneRequest':
+                  'N': '1'
+                ':nowDateTime':
+                  S: '{% $now(''[Y0001]-[M01]-[D01]  [h#1]:[m01][P]'', ''+0800'') %}'
+            Next: Is greater than the daily AI request quota
+            Output:
+              message: '{% $states.input.message %}'
+              humanDetectionData: '{% $states.input.humanDetectionData %}'
+              timeElapsed: '{% $states.input.timeElapsed %}'
+              isHeadless: '{% $states.input.isHeadless %}'
+              fingerprintId: '{% $states.input.fingerprintId %}'
+              lang: '{% $states.input.lang %}'
+              isHuman: '{% $states.input.isHuman %}'
+              totalScore: '{% $states.input.totalScore %}'
+              anonId: '{% $states.input.anonId %}'
+              userAgent: '{% $states.input.userAgent %}'
+              clientIp: '{% $states.input.clientIp %}'
+              clientKey: '{% $states.input.clientKey %}'
+              systemPrompt: '{% $states.input.systemPrompt %}'
+              aiRequestLimit: '{% $states.input.aiRequestLimit %}'
+              aiRequestCount: '{% $queryaCustomerResult.Item.aiRequestCount.N %}'
+              aiRequestLimitDaily: '{% $states.input.aiRequestLimitDaily %}'
+              aiRequestUsageDaily: '{% $states.input.aiRequestUsageDaily %}'
+          Is request from human:
+            Type: Choice
+            Choices:
+              - Next: Bedrock InvokeModel
+                Condition: '{% $boolean($states.input.isHuman) %}'
+            Default: Not request from human message
+          Not request from human message:
+            Type: Pass
+            Next: Insert a new conversation
+            Assign:
+              input_tokens: '0'
+              output_tokens: '0'
+              modelID: none
+              responseText: detect no human issue.
+          Insert a new conversation:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:putItem
+            Arguments:
+              TableName: ${dynamodbputItem_TableName_conversation}
+              Item:
+                input_tokens:
+                  'N': '{% $input_tokens %}'
+                output_tokens:
+                  'N': '{% $output_tokens %}'
+                modelID:
+                  S: '{% $modelID %}'
+                userMessage:
+                  S: '{% $states.input.message %}'
+                responseText:
+                  S: '{% $responseText %}'
+                timeAt:
+                  S: '{% $now() %}'
+                fingerprintId:
+                  S: '{% $states.input.fingerprintId %}'
+                clientKey:
+                  S: '{% $states.input.clientKey %}'
+                anonId:
+                  S: '{% $states.input.anonId %}'
+                humanDetectionMoveTimes:
+                  'N': '{% $string($states.input.humanDetectionData.moveTimesRef) %}'
+                humanDetectionFocuseTimes:
+                  'N': >-
+                    {% $string($states.input.humanDetectionData.focusTimesRef)
+                    %}
+                humanDetectionTypeTimes:
+                  'N': '{% $string($states.input.humanDetectionData.typeTimesRef) %}'
+                humanDetectionTouchStartTimes:
+                  'N': >-
+                    {%
+                    $string($states.input.humanDetectionData.touchStartTimesRef)
+                    %}
+                humanDetectionTouchMoveTimes:
+                  'N': >-
+                    {%
+                    $string($states.input.humanDetectionData.touchMoveTimesRef)
+                    %}
+                humanDetectionTotalScore:
+                  'N': '{% $string($states.input.totalScore) %}'
+                timeElapsed:
+                  'N': '{% $string($states.input.timeElapsed) %}'
+                isHeadless:
+                  BOOL: '{% $states.input.isHeadless %}'
+                isHuman:
+                  BOOL: '{% $states.input.isHuman %}'
+                lang:
+                  S: '{% $states.input.lang %}'
+            End: true
+            Output:
+              responseText: '{% $responseText %}'
+          Bedrock InvokeModel:
+            Type: Task
+            Resource: arn:aws:states:::bedrock:invokeModel
+            Arguments:
+              Body:
+                anthropic_version: bedrock-2023-05-31
+                max_tokens: 600
+                messages:
+                  - content: >-
+                      {% $states.input.message  & '<answer_lang>' &
+                      $states.input.lang & '</answer_lang>' %}
+                    role: user
+                system: '{% $states.input.systemPrompt %}'
+              ModelId: ${bedrock_ModelId_claude_3_haiku}
+            Next: Update the aiRequestUsageDaily
+            Assign:
+              input_tokens: '{% $string($states.result.Body.usage.input_tokens) %}'
+              output_tokens: '{% $string($states.result.Body.usage.output_tokens) %}'
+              modelID: >-
+                arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0
+              responseText: >-
+                {% $states.result.Body.content[0].text & (($states.input.lang =
+                'en') ? '
+                 (Remain AI request quota: ' : '
+                 (剩餘AI詢問次數: ') & ($number($states.input.aiRequestLimit) - $number($states.input.aiRequestCount) - 1) & ')' %}
+            Output:
+              message: '{% $states.input.message %}'
+              humanDetectionData: '{% $states.input.humanDetectionData %}'
+              timeElapsed: '{% $states.input.timeElapsed %}'
+              isHeadless: '{% $states.input.isHeadless %}'
+              fingerprintId: '{% $states.input.fingerprintId %}'
+              lang: '{% $states.input.lang %}'
+              isHuman: '{% $states.input.isHuman %}'
+              totalScore: '{% $states.input.totalScore %}'
+              anonId: '{% $states.input.anonId %}'
+              userAgent: '{% $states.input.userAgent %}'
+              clientIp: '{% $states.input.clientIp %}'
+              clientKey: '{% $states.input.clientKey %}'
+              systemPrompt: '{% $states.input.systemPrompt %}'
+              aiRequestLimit: '{% $states.input.aiRequestLimit %}'
+              aiRequestCount: '{% $states.input.aiRequestCount %}'
+              aiRequestLimitDaily: '{% $states.input.aiRequestLimitDaily %}'
+              aiRequestUsageDaily: '{% $states.input.aiRequestUsageDaily %}'
+          Update the aiRequestUsageDaily:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:updateItem
+            Arguments:
+              TableName: ${dynamodbgetItem_TableName_dailyLimited}
+              Key:
+                PK:
+                  S: daily
+                timeAt:
+                  S: '{% $now(''[Y0001]-[M01]-[D01]'') %}'
+              UpdateExpression: set aiRequestUsageDaily = aiRequestUsageDaily + :oneRequest
+              ExpressionAttributeValues:
+                ':oneRequest':
+                  'N': '1'
+            Next: Update the aiRequestCount
+            Output:
+              message: '{% $states.input.message %}'
+              humanDetectionData: '{% $states.input.humanDetectionData %}'
+              timeElapsed: '{% $states.input.timeElapsed %}'
+              isHeadless: '{% $states.input.isHeadless %}'
+              fingerprintId: '{% $states.input.fingerprintId %}'
+              lang: '{% $states.input.lang %}'
+              isHuman: '{% $states.input.isHuman %}'
+              totalScore: '{% $states.input.totalScore %}'
+              anonId: '{% $states.input.anonId %}'
+              userAgent: '{% $states.input.userAgent %}'
+              clientIp: '{% $states.input.clientIp %}'
+              clientKey: '{% $states.input.clientKey %}'
+              systemPrompt: '{% $states.input.systemPrompt %}'
+              aiRequestLimit: '{% $states.input.aiRequestLimit %}'
+              aiRequestCount: '{% $states.input.aiRequestCount %}'
+              aiRequestLimitDaily: '{% $states.input.aiRequestLimitDaily %}'
+              aiRequestUsageDaily: '{% $states.input.aiRequestUsageDaily %}'
+          Update the aiRequestCount:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:updateItem
+            Arguments:
+              TableName: ${dynamodbgetItem_TableName_customer}
+              Key:
+                fingerprintId:
+                  S: '{% $states.input.fingerprintId %}'
+                clientKey:
+                  S: '{% $states.input.clientKey %}'
+              UpdateExpression: set aiRequestCount = aiRequestCount + :oneRequest
+              ExpressionAttributeValues:
+                ':oneRequest':
+                  'N': '1'
+            Output:
+              message: '{% $states.input.message %}'
+              humanDetectionData: '{% $states.input.humanDetectionData %}'
+              timeElapsed: '{% $states.input.timeElapsed %}'
+              isHeadless: '{% $states.input.isHeadless %}'
+              fingerprintId: '{% $states.input.fingerprintId %}'
+              lang: '{% $states.input.lang %}'
+              isHuman: '{% $states.input.isHuman %}'
+              totalScore: '{% $states.input.totalScore %}'
+              anonId: '{% $states.input.anonId %}'
+              userAgent: '{% $states.input.userAgent %}'
+              clientIp: '{% $states.input.clientIp %}'
+              clientKey: '{% $states.input.clientKey %}'
+              systemPrompt: '{% $states.input.systemPrompt %}'
+              aiRequestLimit: '{% $states.input.aiRequestLimit %}'
+              aiRequestCount: '{% $states.input.aiRequestCount %}'
+              aiRequestLimitDaily: '{% $states.input.aiRequestLimitDaily %}'
+              aiRequestUsageDaily: '{% $states.input.aiRequestUsageDaily %}'
+            Next: Insert a new conversation
+            Assign:
+              input_tokens: '{% $input_tokens %}'
+              output_tokens: '{% $output_tokens %}'
+              modelID: '{% $modelID %}'
+              responseText: '{% $responseText %}'
+        QueryLanguage: JSONata
+      DefinitionSubstitutions:
+        dynamodbgetItem_TableName_config: !Ref ConfigTableName
+        dynamodbgetItem_TableName_dailyLimited: !Ref DailyLimitedTableName
+        dynamodbgetItem_TableName_customer: !Ref CustomerTableName
+        dynamodbputItem_TableName_conversation: !Ref ConverstationTableName
+        bedrock_ModelId_claude_3_haiku: >-
+          arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0
+      RoleArn: !GetAtt StepMachineRole.Arn
+      StateMachineName: !Sub ${ProjectName}-${ProjectSuffixName}-stepMachine
+      StateMachineType: EXPRESS
+      EncryptionConfiguration:
+        Type: AWS_OWNED_KEY
+      LoggingConfiguration:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt LogGroupStepMachine.Arn
+
+  StepMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${ProjectSuffixName}-stepMachine-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      MaxSessionDuration: 3600
+
+  DynamodbPolicyStepMachine:
+    DependsOn:
+      - StepMachineRole
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      PolicyName: !Sub ${ProjectName}-${ProjectSuffixName}-dynamodb-policy-stepMachine
+      RoleName: !Ref StepMachineRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+              - dynamodb:DeleteItem
+            Resource:
+              - !Ref ConfigTableArn
+              - !Ref CustomerTableArn
+              - !Ref ConverstationTableArn
+              - !Ref DailyLimitedTableArn
+
+  XrayPolicyStepMachine:
+    DependsOn:
+      - StepMachineRole
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      PolicyName: !Sub ${ProjectName}-${ProjectSuffixName}-xray-policy-stepMachine
+      RoleName: !Ref StepMachineRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - xray:PutTraceSegments
+              - xray:PutTelemetryRecords
+              - xray:GetSamplingRules
+              - xray:GetSamplingTargets
+            Resource:
+              - '*'
+
+  BedrockPolicyStepMachine:
+    DependsOn:
+      - StepMachineRole
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      PolicyName: !Sub ${ProjectName}-${ProjectSuffixName}-bedrock-policy-stepMachine
+      RoleName: !Ref StepMachineRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Sid: InvokeModel1
+            Action:
+              - bedrock:InvokeModel
+            Resource:
+              - arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0
+
+  CloudWatchLogsPolicyStepMachine:
+    DependsOn:
+      - StepMachineRole
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      PolicyName: !Sub ${ProjectName}-${ProjectSuffixName}-cloudWatchLogs-policy-stepMachine
+      RoleName: !Ref StepMachineRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogDelivery
+              - logs:GetLogDelivery
+              - logs:UpdateLogDelivery
+              - logs:DeleteLogDelivery
+              - logs:ListLogDeliveries
+              - logs:PutResourcePolicy
+              - logs:DescribeResourcePolicies
+              - logs:DescribeLogGroups
+            Resource: '*'
+
+  LogGroupStepMachine:
+    DependsOn:
+      - StepMachineRole
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join
+        - ""
+        - - "/aws/vendedlogs/states/"
+          - !Sub ${ProjectName}-${ProjectSuffixName}-stepMachine
+          - "-Logs"
+
+Outputs:
+  StepFunctionArn:
+    Description: "The Arn of the step function."
+    Value: !GetAtt AiAgentStepMachine.Arn

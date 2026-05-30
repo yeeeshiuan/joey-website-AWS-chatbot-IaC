@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Web APP AI Agent - Dynamodb template
+
+Parameters:
+  ProjectName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Project name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Project name for the Nested Stacks. It can include numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen (-).
+    Type: String
+  ProjectSuffixName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: Suffix name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: Suffix name for every unique service.
+    Type: String
+  ConfigPopulationFileName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-.]*[0-9a-zA-Z])*$
+    ConstraintDescription: File name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+    Description: S3 bucket File name. File name can include numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen (-).
+    Type: String
+
+Resources:
+  ConfigTable:
+    Type: "AWS::DynamoDB::Table"
+    DeletionPolicy: Retain
+    Properties:
+      TableName: !Sub ${ProjectName}-${ProjectSuffixName}-config-table
+      AttributeDefinitions:
+        - AttributeName: "PK"
+          AttributeType: "S"
+        - AttributeName: "SK"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "PK"
+          KeyType: "HASH"
+        - AttributeName: "SK"
+          KeyType: "RANGE"
+      BillingMode: "PAY_PER_REQUEST"
+      ImportSourceSpecification: 
+        InputFormat: "DYNAMODB_JSON"
+        S3BucketSource: 
+          S3Bucket: !Sub ${ProjectName}-${ProjectSuffixName}
+          S3KeyPrefix: !Ref ConfigPopulationFileName
+      Tags:
+        - Key: "project"
+          Value: !Ref ProjectName
+        - Key: "customer"
+          Value: !Ref ProjectSuffixName
+
+  ConversationTable:
+    Type: "AWS::DynamoDB::Table"
+    DeletionPolicy: Retain
+    Properties:
+      TableName: !Sub ${ProjectName}-${ProjectSuffixName}-conversation-table
+      AttributeDefinitions:
+        - AttributeName: "clientKey"
+          AttributeType: "S"
+        - AttributeName: "timeAt"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "clientKey"
+          KeyType: "HASH"
+        - AttributeName: "timeAt"
+          KeyType: "RANGE"
+      BillingMode: "PAY_PER_REQUEST"
+      Tags:
+        - Key: "project"
+          Value: !Ref ProjectName
+        - Key: "customer"
+          Value: !Ref ProjectSuffixName
+
+  CustomerTable:
+    Type: "AWS::DynamoDB::Table"
+    DeletionPolicy: Retain
+    Properties:
+      TableName: !Sub ${ProjectName}-${ProjectSuffixName}-customer-table
+      AttributeDefinitions:
+        - AttributeName: "fingerprintId"
+          AttributeType: "S"
+        - AttributeName: "clientKey"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "fingerprintId"
+          KeyType: "HASH"
+        - AttributeName: "clientKey"
+          KeyType: "RANGE"
+      BillingMode: "PAY_PER_REQUEST"
+      Tags:
+        - Key: "project"
+          Value: !Ref ProjectName
+        - Key: "customer"
+          Value: !Ref ProjectSuffixName
+
+  DailyLimitedTable:
+    Type: "AWS::DynamoDB::Table"
+    DeletionPolicy: Retain
+    Properties:
+      TableName: !Sub ${ProjectName}-${ProjectSuffixName}-daily-limited-table
+      AttributeDefinitions:
+        - AttributeName: "PK"
+          AttributeType: "S"
+        - AttributeName: "timeAt"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "PK"
+          KeyType: "HASH"
+        - AttributeName: "timeAt"
+          KeyType: "RANGE"
+      BillingMode: "PAY_PER_REQUEST"
+      Tags:
+        - Key: "project"
+          Value: !Ref ProjectName
+        - Key: "customer"
+          Value: !Ref ProjectSuffixName
+
+Outputs:
+  ConfigTableName:
+    Description: "The name of the config table."
+    Value: !Ref ConfigTable
+  ConfigTableArn:
+    Description: "The Arn of the config table."
+    Value: !GetAtt ConfigTable.Arn
+  ConverstationTableName:
+    Description: "The name of the conversation table."
+    Value: !Ref ConversationTable
+  ConverstationTableArn:
+    Description: "The Arn of the conversation table."
+    Value: !GetAtt ConversationTable.Arn
+  CustomerTableName:
+    Description: "The name of the customer table."
+    Value: !Ref CustomerTable
+  CustomerTableArn:
+    Description: "The Arn of the customer table."
+    Value: !GetAtt CustomerTable.Arn
+  DailyLimitedTableName:
+    Description: "The name of the daily limited table."
+    Value: !Ref DailyLimitedTable
+  DailyLimitedTableArn:
+    Description: "The Arn of the daily limited table."
+    Value: !GetAtt DailyLimitedTable.Arn
