@@ -273,27 +273,106 @@ To switch models, update the `bedrock_ModelId_claude_3_haiku` substitution in `s
 
 The state machine uses **JSONata** query language and runs as an **EXPRESS** (synchronous) workflow so API Gateway can receive the response inline.
 
-```
-Get Config Data
-  └─► Get Daily Limited Data
-        └─► Is daily exist?
-              ├─ No  → Insert a new daily record
-              └─ Yes → Update requestUsageDaily
-                    └─► Get Customer Data
-                          └─► Is customer exist?
-                                ├─ No  → Insert a new customer record
-                                └─ Yes → Update requestCount
-                                      └─► Is daily AI quota exceeded?
-                                            ├─ Yes → Return quota error message
-                                            └─► Is per-visitor AI quota exceeded?
-                                                  ├─ Yes → Return quota error message
-                                                  └─► Is human? (bot detection gate)
-                                                        ├─ No  → Return bot detection message
-                                                        └─► Bedrock InvokeModel
-                                                              └─► Update aiRequestUsageDaily
-                                                                    └─► Update aiRequestCount
-                                                                          └─► Insert conversation record
-                                                                                └─► END (return responseText)
+```mermaid
+flowchart TD
+    Start([Start]) --> GetConfig
+
+    GetConfig["Get Config Data
+    DynamoDB: config-table · SK = latest
+    Reads: systemPrompt · aiRequestLimit · aiRequestLimitDaily"]
+    GetConfig --> GetDaily
+
+    GetDaily["Get Daily Limited Data
+    DynamoDB: daily-limited-table
+    Key: today's date"]
+    GetDaily --> IsDailyExist
+
+    IsDailyExist{Is daily exist?}
+    IsDailyExist -- Yes --> UpdateRequestUsageDaily
+    IsDailyExist -- No  --> InsertNewDaily
+
+    UpdateRequestUsageDaily["Update requestUsageDaily
+    requestUsageDaily += 1"]
+    InsertNewDaily["Insert a new daily
+    aiRequestUsageDaily = 0 · requestUsageDaily = 1"]
+
+    UpdateRequestUsageDaily --> GetCustomer
+    InsertNewDaily          --> GetCustomer
+
+    GetCustomer["Get Customer Data
+    DynamoDB: customer-table
+    Key: fingerprintId + clientKey"]
+    GetCustomer --> IsCustomerExist
+
+    IsCustomerExist{Is customer exist?}
+    IsCustomerExist -- Yes --> UpdateRequestCount
+    IsCustomerExist -- No  --> InsertNewCustomer
+
+    UpdateRequestCount["Update requestCount
+    requestCount += 1"]
+    InsertNewCustomer["Insert a new customer
+    aiRequestCount = 0 · requestCount = 1"]
+
+    UpdateRequestCount --> IsDailyQuota
+    InsertNewCustomer  --> IsDailyQuota
+
+    IsDailyQuota{"Is daily AI quota exceeded?
+    aiRequestUsageDaily ≥ aiRequestLimitDaily"}
+    IsDailyQuota -- Yes --> NoDailyQuota
+    IsDailyQuota -- No  --> IsPerVisitorQuota
+
+    NoDailyQuota["Pass: No daily AI request quota
+    responseText = daily quota exceeded msg"]
+
+    IsPerVisitorQuota{"Is per-visitor quota exceeded?
+    aiRequestCount ≥ aiRequestLimit"}
+    IsPerVisitorQuota -- Yes --> NoPerVisitorQuota
+    IsPerVisitorQuota -- No  --> IsHuman
+
+    NoPerVisitorQuota["Pass: No AI request quota
+    responseText = per-visitor quota exceeded msg"]
+
+    IsHuman{"Is request from human?
+    isHuman == true"}
+    IsHuman -- No  --> NotHuman
+    IsHuman -- Yes --> Bedrock
+
+    NotHuman["Pass: Not request from human
+    responseText = bot detected msg"]
+
+    Bedrock["Bedrock InvokeModel
+    Model: Claude 3 Haiku · max_tokens: 600
+    Appends remaining quota count to responseText"]
+    Bedrock --> UpdateAiUsageDaily
+
+    UpdateAiUsageDaily["Update aiRequestUsageDaily
+    DynamoDB: daily-limited-table
+    aiRequestUsageDaily += 1"]
+    UpdateAiUsageDaily --> UpdateAiRequestCount
+
+    UpdateAiRequestCount["Update aiRequestCount
+    DynamoDB: customer-table
+    aiRequestCount += 1"]
+    UpdateAiRequestCount --> InsertConversation
+
+    NoDailyQuota      --> InsertConversation
+    NoPerVisitorQuota --> InsertConversation
+    NotHuman          --> InsertConversation
+
+    InsertConversation["Insert a new conversation
+    DynamoDB: conversation-table
+    Stores: message · responseText · tokens · human signals · lang"]
+    InsertConversation --> End([End — return responseText])
+
+    classDef task   fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    classDef choice fill:#fef3c7,stroke:#f59e0b,color:#78350f
+    classDef pass   fill:#f3f4f6,stroke:#9ca3af,color:#374151
+    classDef term   fill:#dcfce7,stroke:#22c55e,color:#14532d
+
+    class GetConfig,GetDaily,UpdateRequestUsageDaily,InsertNewDaily,GetCustomer,UpdateRequestCount,InsertNewCustomer,Bedrock,UpdateAiUsageDaily,UpdateAiRequestCount,InsertConversation task
+    class IsDailyExist,IsCustomerExist,IsDailyQuota,IsPerVisitorQuota,IsHuman choice
+    class NoDailyQuota,NoPerVisitorQuota,NotHuman pass
+    class Start,End term
 ```
 
 ---
