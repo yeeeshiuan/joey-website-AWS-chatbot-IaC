@@ -99,6 +99,12 @@ aws cloudformation create-stack \
     ParameterKey="ProjectSuffixName",ParameterValue="{your-suffix}"
 ```
 
+### Before Step 2 — Customise your system prompt
+
+> **First-time setup**: Open `configDynamodbTableDefaultData.json` and edit the `systemPrompt` field to describe your own professional background. This file is the seed data for the `config-table` and is uploaded in the next step — changes made after upload require a manual DynamoDB update. You can also adjust `aiRequestLimit` (per-visitor daily cap) and `aiRequestLimitDaily` (global daily cap) in the same file.
+>
+> See the [Configuration](#configuration) section for a full field reference.
+
 ### Step 2 — Upload templates and seed data to S3
 
 ```bash
@@ -219,6 +225,40 @@ aws cloudformation create-stack \
 
 ---
 
+## Teardown
+
+To remove all deployed resources, delete the root stack first (CloudFormation cascades to all nested stacks), then empty and delete the S3 bucket stack.
+
+### Step 1 — Delete the root stack
+
+```bash
+aws cloudformation delete-stack \
+  --stack-name {your-project-name}-{your-suffix}-root
+
+aws cloudformation wait stack-delete-complete \
+  --stack-name {your-project-name}-{your-suffix}-root
+```
+
+### Step 2 — Empty the S3 bucket
+
+CloudFormation cannot delete a non-empty bucket, so empty it first:
+
+```bash
+aws s3 rm s3://{your-project-name}-{your-suffix} --recursive
+```
+
+### Step 3 — Delete the S3 bucket stack
+
+```bash
+aws cloudformation delete-stack \
+  --stack-name {your-project-name}-{your-suffix}-s3-bucket
+
+aws cloudformation wait stack-delete-complete \
+  --stack-name {your-project-name}-{your-suffix}-s3-bucket
+```
+
+---
+
 ## Configuration
 
 ### Customising the system prompt
@@ -244,28 +284,91 @@ After deployment, retrieve the generated API key from the AWS Console (API Gatew
 
 ---
 
-## ⚠️ Important: Bedrock Model Deprecation
+## Bedrock Model
 
-The current `step_machine_webappAiAgent.yaml` uses:
+The current `step_machine_webappAiAgent.yaml` uses **DeepSeek V3** as the default model:
 
 ```
-anthropic.claude-3-haiku-20240307-v1:0
+arn:aws:bedrock:us-west-2::foundation-model/deepseek.v3-v1:0
 ```
 
-**This model ID is no longer supported by AWS Bedrock's `InvokeModel` API.**
+The model is referenced via the `bedrock_ModelId_deepseek_v3` substitution key in `DefinitionSubstitutions`. To switch models, update both that substitution value and the corresponding IAM policy resource ARN in `BedrockPolicyStepMachine`.
 
-### Recommended alternatives
+> **Note**: The original `anthropic.claude-3-haiku-20240307-v1:0` model ID is no longer supported by AWS Bedrock's `InvokeModel` API and has been replaced by DeepSeek V3.
+
+### Other supported alternatives
 
 | Model | Model ID | Notes |
 |---|---|---|
-| **DeepSeek-R1** | `deepseek-ai/deepseek-r1` (via Bedrock Marketplace) | Strong reasoning, cost-effective |
+| **DeepSeek V3** *(default)* | `deepseek.v3-v1:0` | Current default — strong instruction following, cost-effective |
+| **DeepSeek R1** | inference profile `us.deepseek.r1-v1:0` | Strong reasoning; requires an inference profile ARN (`arn:aws:bedrock:{region}:{account-id}:inference-profile/us.deepseek.r1-v1:0`), not the foundation model ARN |
 | **Amazon Nova Micro** | `amazon.nova-micro-v1:0` | Fastest and cheapest AWS-native option |
 | **Amazon Nova Lite** | `amazon.nova-lite-v1:0` | Good balance of speed and quality |
-| **Claude 3.5 Haiku** | `anthropic.claude-3-5-haiku-20241022-v1:0` | Drop-in Claude replacement, more capable |
+| **Claude 3.5 Haiku** | `anthropic.claude-3-5-haiku-20241022-v1:0` | Drop-in Anthropic replacement, more capable |
 
-To switch models, update the `bedrock_ModelId_claude_3_haiku` substitution in `step_machine_webappAiAgent.yaml` and the corresponding IAM policy resource ARN in `BedrockPolicyStepMachine`.
+> **DeepSeek request format**: DeepSeek models use an OpenAI-compatible message format — no `anthropic_version` field, and the system prompt goes as the first entry in the `messages` array (`role: system`). Response text is at `choices[0].message.content` and token counts are under `usage.prompt_tokens` / `usage.completion_tokens`.
 
-> **DeepSeek tip**: DeepSeek models on Bedrock use the same `InvokeModel` API and Anthropic-compatible message format, making migration straightforward. Check [Bedrock model access](https://console.aws.amazon.com/bedrock/home#/modelaccess) to enable the model in your account before deploying.
+---
+
+## API Payload
+
+POST to the `WebHookApiGateway` endpoint with the `x-api-key` header set to your API key.
+
+### Request body
+
+```json
+{
+  "message": "What is your professional background?",
+  "lang": "en",
+  "fingerprintId": "visitor-fingerprint-id",
+  "clientKey": "visitor-client-key",
+  "isHuman": true,
+  "humanDetectionData": {
+    "moveTimesRef": 25,
+    "focusTimesRef": 3,
+    "typeTimesRef": 12,
+    "touchStartTimesRef": 0,
+    "touchMoveTimesRef": 0
+  },
+  "timeElapsed": 5000,
+  "isHeadless": false,
+  "totalScore": 80,
+  "anonId": "anonymous-visitor-id",
+  "userAgent": "Mozilla/5.0 ...",
+  "clientIp": "1.2.3.4"
+}
+```
+
+### Field reference
+
+| Field | Type | Description |
+|---|---|---|
+| `message` | String | The visitor's question |
+| `lang` | String | Response language — `"en"` or `"zh"` (Traditional Chinese) |
+| `fingerprintId` | String | Browser fingerprint ID; used as the per-visitor rate-limit key |
+| `clientKey` | String | Secondary client identifier paired with `fingerprintId` |
+| `isHuman` | Boolean | Set by the frontend bot-detection logic; `false` short-circuits the LLM call |
+| `humanDetectionData.moveTimesRef` | Number | Mouse move event count |
+| `humanDetectionData.focusTimesRef` | Number | Window/element focus event count |
+| `humanDetectionData.typeTimesRef` | Number | Keyboard event count |
+| `humanDetectionData.touchStartTimesRef` | Number | Touch start event count (mobile) |
+| `humanDetectionData.touchMoveTimesRef` | Number | Touch move event count (mobile) |
+| `timeElapsed` | Number | Milliseconds since the page loaded |
+| `isHeadless` | Boolean | Whether the browser is detected as headless |
+| `totalScore` | Number | Aggregate human-detection score from the frontend |
+| `anonId` | String | Anonymous session ID |
+| `userAgent` | String | Browser user-agent string |
+| `clientIp` | String | Visitor IP (injected by the frontend or a proxy) |
+
+### Response body
+
+```json
+{
+  "result": "AI response text (Remain AI request quota: 4)"
+}
+```
+
+The `result` string contains the model's answer followed by the remaining per-visitor quota in parentheses. When a limit is hit or the request is flagged as a bot, `result` contains a descriptive message instead of an AI response.
 
 ---
 
@@ -341,7 +444,7 @@ flowchart TD
     responseText = bot detected msg"]
 
     Bedrock["Bedrock InvokeModel
-    Model: Claude 3 Haiku · max_tokens: 600
+    Model: DeepSeek V3 · max_tokens: 600
     Appends remaining quota count to responseText"]
     Bedrock --> UpdateAiUsageDaily
 
