@@ -1,5 +1,7 @@
 # Marjorie — AI Resume Agent (AWS IaC)
 
+[English](README.md) | [繁體中文](README.zh-TW.md)
+
 Serverless infrastructure for **Marjorie**, an AI-powered resume chatbot deployed at [yinxuanh.cc](https://yinxuanh.cc). Visitors can ask Marjorie questions about the site owner's professional background in natural language. Marjorie answers in the visitor's language (English / Traditional Chinese) and politely declines off-topic questions.
 
 Everything here is AWS CloudFormation (nested stacks) with no custom servers — requests go from API Gateway directly into a Step Functions Express workflow that hits DynamoDB and AWS Bedrock.
